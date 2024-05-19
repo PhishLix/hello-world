@@ -1,4 +1,6 @@
-# hello-world-2
+# My README Template
+
+My name is Justin. I am a lawyer, tech is a hobby. I like to play bridge, listen to jazz, and spend time at the Jersey shore.
 
 # Project Title
 
