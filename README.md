@@ -4,7 +4,7 @@ My name is Justin. I am a lawyer, tech is a hobby. I like to play bridge, listen
 
 # Project Title
 
-One Paragraph of project description goes here
+One Paragraph of project description goes here: To learn Github.
 
 ## Getting Started
 
