@@ -5,7 +5,7 @@ Contacts to Excel Exporter
 This script searches for a file named "contacts" on the computer,
 extracts the data, and exports it to an Excel file.
 
-Supported formats: .txt, .csv, .json, .xml, .vcf (vCard)
+Supported formats: .txt, .csv, .json, .xml, .vcf (vCard), .doc, .docx (MS Word)
 """
 
 import os
@@ -36,7 +36,7 @@ def find_contacts_file(search_paths=None):
         search_paths = [Path.home()]
 
     # Supported extensions
-    extensions = ['', '.txt', '.csv', '.json', '.xml', '.vcf']
+    extensions = ['', '.txt', '.csv', '.json', '.xml', '.vcf', '.doc', '.docx']
 
     found_files = []
 
@@ -307,6 +307,183 @@ def parse_vcf_file(file_path):
     return headers, contacts
 
 
+def parse_docx_file(file_path):
+    """Parse a Microsoft Word .docx contacts file."""
+    try:
+        from docx import Document
+    except ImportError:
+        print("Error: python-docx is required for .docx files.")
+        print("Install it with: pip install python-docx")
+        return [], []
+
+    doc = Document(file_path)
+
+    # First, try to find tables in the document
+    if doc.tables:
+        # Use the first table found
+        table = doc.tables[0]
+        rows = []
+        for row in table.rows:
+            row_data = [cell.text.strip() for cell in row.cells]
+            rows.append(row_data)
+
+        if rows:
+            headers = rows[0]
+            contacts = rows[1:] if len(rows) > 1 else []
+            return headers, contacts
+
+    # If no tables, extract text from paragraphs
+    text_content = []
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        if text:
+            text_content.append(text)
+
+    if not text_content:
+        return [], []
+
+    # Parse the text content similar to txt file
+    return _parse_text_lines(text_content)
+
+
+def parse_doc_file(file_path):
+    """Parse a Microsoft Word .doc (legacy) contacts file."""
+    # Try using olefile to extract text from .doc files
+    try:
+        import olefile
+    except ImportError:
+        print("Error: olefile is required for .doc files.")
+        print("Install it with: pip install olefile")
+        return [], []
+
+    try:
+        ole = olefile.OleFileIO(file_path)
+
+        # Try to read the WordDocument stream
+        if ole.exists('WordDocument'):
+            # .doc files store text in a complex format
+            # We'll try to extract readable text
+            word_stream = ole.openstream('WordDocument').read()
+
+            # Try to extract ASCII text
+            text = ''
+            for byte in word_stream:
+                if 32 <= byte < 127 or byte in (10, 13, 9):
+                    text += chr(byte)
+                elif byte == 0 and text and text[-1] != ' ':
+                    text += ' '
+
+            # Clean up the text
+            lines = []
+            for line in text.split('\n'):
+                line = ' '.join(line.split())  # Normalize whitespace
+                if line and len(line) > 1:  # Filter out noise
+                    lines.append(line)
+
+            ole.close()
+
+            if lines:
+                return _parse_text_lines(lines)
+
+        ole.close()
+
+    except Exception as e:
+        print(f"Error reading .doc file: {e}")
+
+    # Fallback: try to read as text with encoding detection
+    try:
+        with open(file_path, 'rb') as f:
+            content = f.read()
+
+        # Try to extract readable text
+        text = ''
+        for byte in content:
+            if 32 <= byte < 127 or byte in (10, 13, 9):
+                text += chr(byte)
+
+        lines = [line.strip() for line in text.split('\n') if line.strip() and len(line.strip()) > 2]
+
+        if lines:
+            return _parse_text_lines(lines)
+
+    except Exception as e:
+        print(f"Fallback text extraction failed: {e}")
+
+    return [], []
+
+
+def _parse_text_lines(lines):
+    """
+    Parse a list of text lines into contacts.
+
+    Helper function used by both docx and doc parsers.
+    """
+    contacts = []
+
+    # Check for common delimiters in first line
+    first_line = lines[0] if lines else ''
+
+    for delimiter in ['\t', ',', '|', ';']:
+        if delimiter in first_line:
+            # Treat as delimited data
+            import csv
+            reader = csv.reader(lines, delimiter=delimiter)
+            rows = list(reader)
+            if rows:
+                headers = rows[0]
+                contacts = rows[1:] if len(rows) > 1 else []
+                return headers, contacts
+
+    # Parse as key-value pairs or structured text
+    headers = ['Name', 'Email', 'Phone', 'Address', 'Notes']
+    current_contact = {}
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            if current_contact:
+                contacts.append(current_contact)
+                current_contact = {}
+            continue
+
+        # Check for separator lines (common in Word docs)
+        if all(c in '-_=*' for c in line):
+            if current_contact:
+                contacts.append(current_contact)
+                current_contact = {}
+            continue
+
+        # Try to parse key: value format
+        if ':' in line:
+            parts = line.split(':', 1)
+            if len(parts) == 2:
+                key = parts[0].strip().title()
+                value = parts[1].strip()
+                if key and value:
+                    current_contact[key] = value
+                    continue
+
+        # Assume it's a name or additional info
+        if 'Name' not in current_contact:
+            current_contact['Name'] = line
+        else:
+            current_contact['Notes'] = current_contact.get('Notes', '') + ' ' + line
+
+    if current_contact:
+        contacts.append(current_contact)
+
+    # Convert dict contacts to list format
+    if contacts and isinstance(contacts[0], dict):
+        all_keys = set()
+        for c in contacts:
+            all_keys.update(c.keys())
+        headers = sorted(all_keys)
+        contact_rows = [[c.get(h, '') for h in headers] for c in contacts]
+        return headers, contact_rows
+
+    return headers, contacts
+
+
 def parse_contacts_file(file_path):
     """
     Parse a contacts file based on its extension.
@@ -323,6 +500,8 @@ def parse_contacts_file(file_path):
         '.xml': parse_xml_file,
         '.vcf': parse_vcf_file,
         '.txt': parse_txt_file,
+        '.doc': parse_doc_file,
+        '.docx': parse_docx_file,
         '': parse_txt_file,  # No extension, try as text
     }
 
@@ -427,6 +606,8 @@ def main():
         print("  - contacts.json")
         print("  - contacts.xml")
         print("  - contacts.vcf")
+        print("  - contacts.doc")
+        print("  - contacts.docx")
         print("\nOr specify the path as an argument:")
         print(f"  python {sys.argv[0]} /path/to/your/contacts/file")
         sys.exit(1)
