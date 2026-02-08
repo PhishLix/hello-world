@@ -30,8 +30,8 @@ import tempfile
 # Common paths where the GARY share might be mounted.  The script tries each
 # in order and uses the first one that exists, unless --source is supplied.
 DEFAULT_GARY_PATHS = [
-    r"G:\GARY",
-    r"G:",
+    r"S:\GARY",
+    r"S:",
     r"\\server\GARY",
     r"/mnt/gary",
     r"/mnt/GARY",
