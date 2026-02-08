@@ -6,9 +6,12 @@ Scans the GARY shared directory for files named INFO.doc, info.doc, Info.doc,
 INFO.docx, info.docx, or Info.docx, extracts contact information from each,
 and writes the results to GMMContacts.csv on the user's Desktop.
 
+The INFO files are expected to contain unstructured legal case data with
+contact blocks (attorneys, parties, etc.) separated by blank lines.
+
 Usage:
-    python3 extract_contacts.py
-    python3 extract_contacts.py --source "G:\\GARY" --output "C:\\Users\\YourName\\Desktop\\GMMContacts.csv"
+    py extract_contacts.py --source "S:\\GARY"
+    py extract_contacts.py --source "S:\\GARY" --output "C:\\Users\\You\\Desktop\\GMMContacts.csv"
 
 Requirements:
     pip install python-docx olefile
@@ -25,13 +28,11 @@ import sys
 import tempfile
 
 # ---------------------------------------------------------------------------
-# Configuration defaults – adjust these to match your environment
+# Configuration defaults
 # ---------------------------------------------------------------------------
-# Common paths where the GARY share might be mounted.  The script tries each
-# in order and uses the first one that exists, unless --source is supplied.
 DEFAULT_GARY_PATHS = [
     r"S:\GARY",
-    r"S:",
+    r"G:\GARY",
     r"\\server\GARY",
     r"/mnt/gary",
     r"/mnt/GARY",
@@ -55,18 +56,14 @@ def read_doc_olefile(filepath):
     if not olefile.isOleFile(filepath):
         return None
     ole = olefile.OleFileIO(filepath)
-    # The main text stream in a .doc is 'WordDocument', but raw text is
-    # often easier to pull from the 'Word Document' or via the
-    # '\x01CompObj' or by reading all streams.  A lightweight approach:
     text_parts = []
     for stream in ole.listdir():
         stream_path = "/".join(stream)
         if stream_path.lower() in ("worddocument", "1table", "0table"):
-            continue  # binary streams
+            continue
         try:
             data = ole.openstream(stream).read()
             decoded = data.decode("utf-8", errors="ignore")
-            # Keep only printable stretches
             printable = re.sub(r"[^\x20-\x7E\n\r\t]", " ", decoded)
             printable = re.sub(r" {3,}", " ", printable)
             if len(printable.strip()) > 20:
@@ -82,15 +79,8 @@ def read_doc_libreoffice(filepath):
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
             subprocess.run(
-                [
-                    "libreoffice",
-                    "--headless",
-                    "--convert-to",
-                    "docx",
-                    "--outdir",
-                    tmpdir,
-                    filepath,
-                ],
+                ["libreoffice", "--headless", "--convert-to", "docx",
+                 "--outdir", tmpdir, filepath],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=30,
@@ -111,7 +101,6 @@ def read_file(filepath):
     if ext == ".docx":
         return read_docx(filepath)
 
-    # Legacy .doc – try olefile first, then LibreOffice
     text = read_doc_olefile(filepath)
     if text:
         return text
@@ -119,7 +108,6 @@ def read_file(filepath):
     if text:
         return text
 
-    # Last resort: read raw bytes and pull printable strings
     with open(filepath, "rb") as f:
         raw = f.read()
     decoded = raw.decode("utf-8", errors="ignore")
@@ -127,136 +115,210 @@ def read_file(filepath):
 
 
 # ---------------------------------------------------------------------------
-# Contact extraction
+# Contact extraction – block-based approach for unstructured legal docs
 # ---------------------------------------------------------------------------
 
-# Regex patterns for typical contact-info fields
 PHONE_RE = re.compile(
-    r"(\+?1?\s*[-.\(]?\s*\d{3}\s*[-.\)]?\s*\d{3}\s*[-.]?\s*\d{4})"
+    r"\(?\d{3}\)?[\s.\-]*\d{3}[\s.\-]*\d{4}"
 )
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
-ZIP_RE = re.compile(r"\b\d{5}(?:-\d{4})?\b")
+# "City, ST ZIP" or "City, ST ZIP-PLUS4"
+CITY_STATE_ZIP_RE = re.compile(
+    r"^(.*?),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)(.*)$", re.MULTILINE
+)
+# "County County, ST" pattern for individual plaintiffs/parties
+COUNTY_RE = re.compile(
+    r"^([\w\s]+?County),\s*([A-Z]{2})\s*$", re.MULTILINE
+)
+# Street address: starts with a number, contains typical street words
+STREET_RE = re.compile(
+    r"^\d+[\w\s,.#-]+"
+    r"(?:STREET|PKWY|PARKWAY|AVENUE|AVE|BLVD|BOULEVARD|DRIVE|DR|"
+    r"ROAD|RD|LANE|LN|COURT|CT|PLACE|PL|WAY|CIRCLE|CIR|"
+    r"TERRACE|TER|TRAIL|TRL|PIKE|HWY|HIGHWAY|YARDS|PLAZA)",
+    re.IGNORECASE | re.MULTILINE,
+)
+# Patterns that indicate a block is a case header, not a contact
+CASE_HEADER_RE = re.compile(
+    r"(?:Civil Action|Docket N|IN RE:|v\.\s|et al\.|Hon\.\s|Assigned to:|"
+    r"Transferee|Master Docket|MDL Docket)",
+    re.IGNORECASE,
+)
+# Lines that are clearly NOT a person's name
+SKIP_NAME_PATTERNS = [
+    re.compile(r"(?:IN RE|Civil Action|Master Docket|MDL Docket|Assigned to|"
+               r"Transferee|Hon\.|v\.|et al|ATTORNEY TO BE|LEAD ATTORNEY|"
+               r"Attorneys for|^\()", re.IGNORECASE),
+    PHONE_RE,
+    EMAIL_RE,
+    STREET_RE,
+    re.compile(r"^\d+[\s.\-]*\d+[\s.\-]*\d+"),  # bare phone number
+    re.compile(r"^Fax:", re.IGNORECASE),
+    re.compile(r"^Tel:", re.IGNORECASE),
+    re.compile(r"^Email:", re.IGNORECASE),
+]
+# Firm/org indicators
+FIRM_RE = re.compile(
+    r"\b(?:LLP|LLC|L\.L\.P|L\.L\.C|P\.?C\.?|PLLC|INC\.?|CORP\.?|"
+    r"& ASSOCIATES|LAW\s+(?:GROUP|FIRM|OFFICE))\b",
+    re.IGNORECASE,
+)
 
-# Label patterns that appear before a value on the same or next line
-LABEL_RE = {
-    "name": re.compile(
-        r"(?:(?:full\s*)?name|contact(?:\s*name)?|attorney|lawyer|firm\s*name"
-        r"|company|manager|owner)\s*[:;\-]?\s*(.*)",
-        re.IGNORECASE,
-    ),
-    "address": re.compile(
-        r"(?:address|street|mailing\s*address|location)\s*[:;\-]?\s*(.*)",
-        re.IGNORECASE,
-    ),
-    "city": re.compile(
-        r"(?:city)\s*[:;\-]\s*(.*)", re.IGNORECASE
-    ),
-    "state": re.compile(
-        r"(?:state)\s*[:;\-]\s*(.*)", re.IGNORECASE
-    ),
-    "zip": re.compile(
-        r"(?:zip(?:\s*code)?|postal\s*code)\s*[:;\-]?\s*(.*)", re.IGNORECASE
-    ),
-    "phone": re.compile(
-        r"(?:phone|tel(?:ephone)?|cell|mobile|fax|office)\s*[:;\-#]?\s*(.*)",
-        re.IGNORECASE,
-    ),
-    "email": re.compile(
-        r"(?:e[\-\s]?mail)\s*[:;\-]?\s*(.*)", re.IGNORECASE
-    ),
-}
+
+def _is_skip_line(line):
+    """Return True if the line should not be treated as a person's name."""
+    for pat in SKIP_NAME_PATTERNS:
+        if pat.search(line):
+            return True
+    return False
+
+
+def _is_case_header(block):
+    """Return True if the block looks like a case caption / header."""
+    lines = [ln.strip() for ln in block.strip().splitlines() if ln.strip()]
+    if not lines:
+        return False
+    # If more than half the lines match case-header patterns, skip it
+    header_lines = sum(1 for ln in lines if CASE_HEADER_RE.search(ln))
+    return header_lines >= len(lines) / 2
+
+
+def _block_has_contact_info(block):
+    """Return True if the block contains at least a phone or email."""
+    return bool(PHONE_RE.search(block) or EMAIL_RE.search(block))
+
+
+def _extract_one_contact(block, source_path):
+    """Extract a single contact dict from a text block."""
+    lines = [ln.strip() for ln in block.strip().splitlines() if ln.strip()]
+    if not lines:
+        return None
+
+    contact = {
+        "source_file": source_path,
+        "name": "",
+        "firm": "",
+        "address": "",
+        "city": "",
+        "state": "",
+        "zip": "",
+        "county": "",
+        "phone": "",
+        "fax": "",
+        "email": "",
+        "role": "",
+    }
+
+    # --- Emails (collect all) ---
+    emails = []
+    for line in lines:
+        found = EMAIL_RE.findall(line)
+        emails.extend(found)
+    contact["email"] = "; ".join(dict.fromkeys(emails))
+
+    # --- Phone / Fax ---
+    phones = []
+    faxes = []
+    for line in lines:
+        nums = PHONE_RE.findall(line)
+        if nums:
+            if re.match(r"^\s*Fax", line, re.IGNORECASE):
+                faxes.extend(nums)
+            elif re.match(r"^\s*Tel", line, re.IGNORECASE):
+                phones.extend(nums)
+            else:
+                phones.extend(nums)
+    contact["phone"] = "; ".join(dict.fromkeys(phones))
+    contact["fax"] = "; ".join(dict.fromkeys(faxes))
+
+    # --- City, State, ZIP ---
+    csz_match = CITY_STATE_ZIP_RE.search(block)
+    if csz_match:
+        contact["city"] = csz_match.group(1).strip()
+        contact["state"] = csz_match.group(2).strip()
+        contact["zip"] = csz_match.group(3).strip()
+
+    # --- County, State (for individuals) ---
+    for line in lines:
+        county_match = COUNTY_RE.match(line)
+        if county_match:
+            contact["county"] = county_match.group(1).strip()
+            if not contact["state"]:
+                contact["state"] = county_match.group(2).strip()
+            break
+
+    # --- Street address ---
+    addr_match = STREET_RE.search(block)
+    if addr_match:
+        contact["address"] = addr_match.group(0).strip()
+
+    # --- Firm / organization ---
+    for line in lines:
+        if FIRM_RE.search(line):
+            # Clean off leading/trailing junk
+            firm = line.strip()
+            # Remove attorney ID if stuck on same line
+            firm = re.sub(r"\([\w.\s]+Attorney.*?\)", "", firm).strip()
+            contact["firm"] = firm
+            break
+
+    # --- Role / description (e.g. "Attorneys for Defendants") ---
+    for line in lines:
+        if re.match(r"(?:Attorneys? for|Counsel for|LEAD ATTORNEY|"
+                    r"ATTORNEY TO BE NOTICED)", line, re.IGNORECASE):
+            # Grab this line and the next (which may have the party name)
+            idx = lines.index(line)
+            role_parts = [line]
+            if idx + 1 < len(lines):
+                next_line = lines[idx + 1]
+                if not PHONE_RE.search(next_line) and not EMAIL_RE.search(next_line):
+                    role_parts.append(next_line)
+            contact["role"] = " / ".join(role_parts)
+            break
+
+    # --- Name: first line that looks like a person's name ---
+    for line in lines:
+        cleaned = line.strip()
+        if not cleaned:
+            continue
+        if _is_skip_line(cleaned):
+            continue
+        if FIRM_RE.search(cleaned):
+            continue
+        if CITY_STATE_ZIP_RE.match(cleaned):
+            continue
+        if COUNTY_RE.match(cleaned):
+            continue
+        # Looks like a name
+        contact["name"] = cleaned
+        break
+
+    # Only keep the record if we have meaningful contact info
+    if contact["name"] or contact["email"] or contact["phone"]:
+        return contact
+    return None
 
 
 def extract_contacts(text, source_path):
     """
-    Parse *text* and return a list of dicts, each representing one contact.
-    Each dict has keys: source, name, address, city, state, zip, phone,
-    email, and raw_text (for debugging / manual review).
+    Split text into blocks (separated by blank lines) and extract
+    contacts from blocks that contain phone numbers or emails.
     """
     contacts = []
-    # Try to split on obvious record separators (horizontal rules, page
-    # breaks, repeated dashes/underscores, or large blank gaps).
-    records = re.split(
-        r"\n\s*(?:[-_=*]{5,}|={3,}|\f)\s*\n|\n{3,}", text
-    )
-    if not records:
-        records = [text]
+    # Split on one or more blank lines
+    blocks = re.split(r"\n\s*\n", text)
 
-    for record in records:
-        record = record.strip()
-        if len(record) < 10:
+    for block in blocks:
+        block = block.strip()
+        if len(block) < 5:
+            continue
+        if not _block_has_contact_info(block):
+            continue
+        if _is_case_header(block):
             continue
 
-        contact = {
-            "source_file": source_path,
-            "name": "",
-            "address": "",
-            "city": "",
-            "state": "",
-            "zip": "",
-            "phone": "",
-            "email": "",
-        }
-
-        # 1. Try labelled fields
-        for field, pattern in LABEL_RE.items():
-            match = pattern.search(record)
-            if match:
-                value = match.group(1).strip().strip(":;- ")
-                if value:
-                    contact[field] = value
-
-        # 1b. Fallback: look for "City, ST ZIP" pattern on any line
-        if not contact["city"] or not contact["state"]:
-            csz = re.search(
-                r"^([A-Za-z .-]+),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)",
-                record,
-                re.MULTILINE,
-            )
-            if csz:
-                if not contact["city"]:
-                    contact["city"] = csz.group(1).strip()
-                if not contact["state"]:
-                    contact["state"] = csz.group(2).strip()
-                if not contact["zip"]:
-                    contact["zip"] = csz.group(3).strip()
-
-        # 2. Fallback: extract emails and phones via global regex
-        if not contact["email"]:
-            emails = EMAIL_RE.findall(record)
-            if emails:
-                contact["email"] = "; ".join(dict.fromkeys(emails))
-
-        if not contact["phone"]:
-            phones = PHONE_RE.findall(record)
-            if phones:
-                cleaned = []
-                for p in phones:
-                    p = p.strip()
-                    # Filter out numbers that are too short
-                    digits = re.sub(r"\D", "", p)
-                    if len(digits) >= 7:
-                        cleaned.append(p)
-                contact["phone"] = "; ".join(dict.fromkeys(cleaned))
-
-        if not contact["zip"]:
-            zips = ZIP_RE.findall(record)
-            if zips:
-                contact["zip"] = zips[0]
-
-        # 3. Heuristic: if no name found, use the first non-empty line
-        if not contact["name"]:
-            for line in record.splitlines():
-                line = line.strip()
-                if line and not re.match(r"^[-_=*]+$", line):
-                    # Skip lines that look like labels only
-                    if ":" in line and len(line.split(":", 1)[0].split()) <= 3:
-                        continue
-                    contact["name"] = line
-                    break
-
-        # Only keep the record if we found at least a name or email or phone
-        if contact["name"] or contact["email"] or contact["phone"]:
+        contact = _extract_one_contact(block, source_path)
+        if contact:
             contacts.append(contact)
 
     return contacts
@@ -299,7 +361,7 @@ def resolve_gary_path(override=None):
         "ERROR: Could not locate the GARY shared directory.\n"
         "Tried: " + ", ".join(DEFAULT_GARY_PATHS) + "\n\n"
         "Please specify the path with:\n"
-        '    python3 extract_contacts.py --source "G:\\GARY"'
+        '    py extract_contacts.py --source "S:\\GARY"'
     )
     sys.exit(1)
 
@@ -310,19 +372,17 @@ def resolve_output_path(override=None):
         os.makedirs(os.path.dirname(override) or ".", exist_ok=True)
         return override
 
-    # Try common Desktop locations
     home = os.path.expanduser("~")
     candidates = [
         os.path.join(home, "Desktop"),
         os.path.join(home, "OneDrive", "Desktop"),
-        os.path.join(home, "OneDrive - *", "Desktop"),  # glob-friendly
+        os.path.join(home, "OneDrive - *", "Desktop"),
     ]
     for pattern in candidates:
         for path in glob.glob(pattern):
             if os.path.isdir(path):
                 return os.path.join(path, "GMMContacts.csv")
 
-    # Fallback: create Desktop in home
     desktop = os.path.join(home, "Desktop")
     os.makedirs(desktop, exist_ok=True)
     return os.path.join(desktop, "GMMContacts.csv")
@@ -331,12 +391,16 @@ def resolve_output_path(override=None):
 CSV_COLUMNS = [
     "source_file",
     "name",
+    "firm",
     "address",
     "city",
     "state",
     "zip",
+    "county",
     "phone",
+    "fax",
     "email",
+    "role",
 ]
 
 
@@ -345,13 +409,11 @@ def main():
         description="Extract contacts from INFO.doc(x) files in the GARY shared directory."
     )
     parser.add_argument(
-        "--source",
-        default=None,
+        "--source", default=None,
         help="Path to the GARY shared directory (auto-detected if omitted).",
     )
     parser.add_argument(
-        "--output",
-        default=None,
+        "--output", default=None,
         help="Path for the output CSV file (defaults to ~/Desktop/GMMContacts.csv).",
     )
     args = parser.parse_args()
@@ -381,7 +443,6 @@ def main():
         print(f"    Extracted {len(contacts)} contact(s).")
         all_contacts.extend(contacts)
 
-    # Write CSV
     with open(output_csv, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS, extrasaction="ignore")
         writer.writeheader()
