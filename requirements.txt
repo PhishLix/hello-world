@@ -1,0 +1,2 @@
+libpff-python>=20211114
+openpyxl>=3.1.0

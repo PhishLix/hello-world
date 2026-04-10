@@ -1,91 +1,108 @@
-# My README Template
+# Outlook PST Contact Extractor
 
-My name is Justin. I am a lawyer, tech is a hobby. I like to play bridge, listen to jazz, and spend time at the Jersey shore.
+Extract contact information from Microsoft Outlook `.pst` files and export the data to a formatted Excel spreadsheet.
 
-# Project Title
+## What It Does
 
-One Paragraph of project description goes here: To learn Github.
+This tool scans every email in a `.pst` file, parses structured fields from the email body (key-value pairs such as `First Name: John`), and writes one row per contact to an Excel workbook with the following columns:
 
-## Getting Started
+| Column | Description |
+|---|---|
+| Source ID | Case/reference ID found in the email, or auto-generated |
+| First Name | Contact's first/given name |
+| Last Name | Contact's last/family name |
+| City | City of residence |
+| State | US state (normalized to two-letter abbreviation) |
+| Phone | Phone number (normalized to `(XXX) XXX-XXXX`) |
+| Email | Email address |
+| Amount of Money Lost | Reported financial loss (formatted as currency) |
 
-These instructions will get you a copy of the project up and running on your local machine for development and testing purposes. See deployment for notes on how to deploy the project on a live system.
+## Prerequisites
 
-### Prerequisites
+- Python 3.8+
+- pip
 
-What things you need to install the software and how to install them
+## Installation
 
-```
-Give examples
-```
-
-### Installing
-
-A step by step series of examples that tell you how to get a development env running
-
-Say what the step will be
-
-```
-Give the example
-```
-
-And repeat
-
-```
-until finished
+```bash
+pip install -r requirements.txt
 ```
 
-End with an example of getting some data out of the system or using it for a little demo
+**Note:** The `libpff-python` package (for reading `.pst` files) may require system-level dependencies on some platforms. On Debian/Ubuntu:
 
-## Running the tests
-
-Explain how to run the automated tests for this system
-
-### Break down into end to end tests
-
-Explain what these tests test and why
-
-```
-Give an example
+```bash
+sudo apt-get install libpff-dev
+pip install libpff-python
 ```
 
-### And coding style tests
+On macOS with Homebrew:
 
-Explain what these tests test and why
+```bash
+brew install libpff
+pip install libpff-python
+```
+
+## Usage
+
+### Extract contacts from a .pst file
+
+```bash
+python extract_outlook_contacts.py inbox.pst
+```
+
+This creates `inbox_contacts.xlsx` in the current directory.
+
+### Specify a custom output file
+
+```bash
+python extract_outlook_contacts.py inbox.pst -o my_contacts.xlsx
+```
+
+### Run in demo mode (no .pst file needed)
+
+```bash
+python extract_outlook_contacts.py --demo
+python extract_outlook_contacts.py --demo -o sample_output.xlsx
+```
+
+Demo mode uses built-in sample email data to generate a fully populated Excel file so you can preview the output format.
+
+## How Contact Data Is Extracted
+
+The script recognizes structured key-value patterns commonly found in complaint or report emails:
 
 ```
-Give an example
+First Name: Maria
+Last Name: Gonzalez
+City: Newark
+State: New Jersey
+Phone: (973) 555-0142
+Email: maria.gonzalez@example.com
+Amount of Money Lost: $4,500.00
 ```
 
-## Deployment
+It also handles variations such as:
+- `Name: Williams, Sandra` (Last, First format)
+- `Full Name: David Kim`
+- `Tel`, `Cell`, `Mobile`, `Telephone` for phone fields
+- `Total Loss`, `Financial Loss`, `Damages` for money fields
+- `Case ID`, `Reference`, `Ticket` for source ID fields
+- Full state names are normalized to two-letter abbreviations (e.g., `New Jersey` to `NJ`)
 
-Add additional notes about how to deploy this on a live system
+If no key-value match is found, the script falls back to standalone regex patterns to find email addresses, phone numbers, and dollar amounts in the email body.
 
-## Built With
+## Output Format
 
-* [Dropwizard](http://www.dropwizard.io/1.0.2/docs/) - The web framework used
-* [Maven](https://maven.apache.org/) - Dependency Management
-* [ROME](https://rometools.github.io/rome/) - Used to generate RSS Feeds
+The Excel file includes:
+- Formatted header row with column filters
+- Frozen header pane for easy scrolling
+- Auto-sized columns
+- Currency formatting on the "Amount of Money Lost" column
 
-## Contributing
+## Author
 
-Please read [CONTRIBUTING.md](https://gist.github.com/PurpleBooth/b24679402957c63ec426) for details on our code of conduct, and the process for submitting pull requests to us.
-
-## Versioning
-
-We use [SemVer](http://semver.org/) for versioning. For the versions available, see the [tags on this repository](https://github.com/your/project/tags). 
-
-## Authors
-
-* **Billie Thompson** - *Initial work* - [PurpleBooth](https://github.com/PurpleBooth)
-
-See also the list of [contributors](https://github.com/your/project/contributors) who participated in this project.
+Justin
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
-
-## Acknowledgments
-
-* Hat tip to anyone whose code was used
-* Inspiration
-* etc
+This project is licensed under the MIT License.
