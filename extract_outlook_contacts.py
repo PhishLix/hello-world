@@ -15,7 +15,6 @@ import argparse
 import os
 import re
 import sys
-import uuid
 from datetime import datetime
 
 try:
@@ -37,7 +36,6 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 EXCEL_COLUMNS = [
-    "Source ID",
     "First Name",
     "Last Name",
     "City",
@@ -76,11 +74,15 @@ US_STATE_NAMES = {
 }
 
 # ---------------------------------------------------------------------------
-# Regex helpers
+# Regex helpers — two styles are supported:
+#
+#   Style 1 (key-value):  "First Name: John"
+#   Style 2 (Q&A):        "What is your first name?\nJohn"
+#
+# The Q&A style matches a question line ending with '?' and captures the
+# non-empty line that follows it as the answer.
 # ---------------------------------------------------------------------------
 
-# Matches common key: value patterns found in structured emails
-# e.g. "First Name: John" or "First Name - John" or "First Name = John"
 def _kv_pattern(key_alts: str) -> re.Pattern:
     """Build a regex that matches key-value lines for the given key alternatives."""
     return re.compile(
@@ -89,30 +91,68 @@ def _kv_pattern(key_alts: str) -> re.Pattern:
     )
 
 
-RE_FIRST_NAME = _kv_pattern(
-    r"first\s*name|given\s*name|fname|first"
-)
-RE_LAST_NAME = _kv_pattern(
-    r"last\s*name|surname|family\s*name|lname|last"
-)
-RE_CITY = _kv_pattern(r"city|town|municipality")
-RE_STATE = _kv_pattern(r"state|province|st")
-RE_PHONE = _kv_pattern(
+def _qa_pattern(question_alts: str) -> re.Pattern:
+    """Build a regex that matches a question line followed by the answer on the next line."""
+    return re.compile(
+        rf"(?:^|\n)\s*(?:{question_alts})\s*\??\s*\n\s*(.+)",
+        re.IGNORECASE,
+    )
+
+
+# --- Key-value patterns (Style 1) ---
+RE_KV_FIRST_NAME = _kv_pattern(r"first\s*name|given\s*name|fname")
+RE_KV_LAST_NAME = _kv_pattern(r"last\s*name|surname|family\s*name|lname")
+RE_KV_CITY = _kv_pattern(r"city|town|municipality")
+RE_KV_STATE = _kv_pattern(r"state|province")
+RE_KV_PHONE = _kv_pattern(
     r"phone|telephone|tel|cell|mobile|ph|phone\s*number|contact\s*number"
 )
-RE_EMAIL_FIELD = _kv_pattern(
-    r"e-?mail|email\s*address|contact\s*email"
-)
-RE_AMOUNT = _kv_pattern(
+RE_KV_EMAIL = _kv_pattern(r"e-?mail|email\s*address|contact\s*email")
+RE_KV_AMOUNT = _kv_pattern(
     r"amount|loss|money\s*lost|amount\s*lost|amount\s*of\s*money\s*lost|"
     r"total\s*loss|financial\s*loss|damages|amount\s*of\s*loss"
 )
-RE_SOURCE_ID = _kv_pattern(
-    r"source\s*id|case\s*id|reference|ref|id|case\s*number|case\s*no|ticket"
-)
-RE_FULL_NAME = _kv_pattern(r"name|full\s*name|contact\s*name|complainant")
+RE_KV_FULL_NAME = _kv_pattern(r"name|full\s*name|contact\s*name|complainant")
 
-# Standalone patterns (not key-value) used as fallbacks
+# --- Q&A patterns (Style 2) ---
+RE_QA_FIRST_NAME = _qa_pattern(
+    r"what\s+is\s+your\s+first\s+name|first\s+name|your\s+first\s+name|given\s+name"
+)
+RE_QA_LAST_NAME = _qa_pattern(
+    r"what\s+is\s+your\s+last\s+name|last\s+name|your\s+last\s+name|surname|family\s+name"
+)
+RE_QA_FULL_NAME = _qa_pattern(
+    r"what\s+is\s+your\s+(?:full\s+)?name|your\s+(?:full\s+)?name|full\s+name|name"
+)
+RE_QA_CITY = _qa_pattern(
+    r"what\s+city\s+do\s+you\s+live\s+in|what\s+is\s+your\s+city|"
+    r"what\s+city\s+are\s+you\s+in|city|your\s+city|town|"
+    r"in\s+what\s+city\s+do\s+you\s+(?:live|reside)"
+)
+RE_QA_STATE = _qa_pattern(
+    r"what\s+state\s+do\s+you\s+live\s+in|what\s+is\s+your\s+state|"
+    r"what\s+state\s+are\s+you\s+in|state|your\s+state|"
+    r"in\s+what\s+state\s+do\s+you\s+(?:live|reside)"
+)
+RE_QA_PHONE = _qa_pattern(
+    r"what\s+is\s+your\s+(?:phone|telephone|cell|mobile)\s*(?:number)?|"
+    r"phone\s*(?:number)?|your\s+(?:phone|telephone)\s*(?:number)?|"
+    r"(?:best|contact)\s+(?:phone|number)\s*(?:number)?"
+)
+RE_QA_EMAIL = _qa_pattern(
+    r"what\s+is\s+your\s+e-?mail(?:\s+address)?|"
+    r"e-?mail(?:\s+address)?|your\s+e-?mail(?:\s+address)?"
+)
+RE_QA_AMOUNT = _qa_pattern(
+    r"how\s+much\s+(?:money\s+)?(?:did\s+you|have\s+you)\s+los[et]|"
+    r"how\s+much\s+(?:money\s+)?was\s+(?:lost|stolen|taken)|"
+    r"(?:total\s+)?amount\s+(?:of\s+money\s+)?lost|"
+    r"amount\s+(?:of\s+)?(?:money\s+)?(?:lost|stolen)|"
+    r"what\s+(?:is|was)\s+(?:the\s+)?(?:total\s+)?(?:amount|loss)|"
+    r"financial\s+loss|damages|total\s+loss"
+)
+
+# Standalone fallback patterns
 RE_EMAIL_ADDR = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 RE_PHONE_STANDALONE = re.compile(
     r"(?<!\d)"
@@ -133,6 +173,15 @@ def _first_match(pattern: re.Pattern, text: str) -> str:
     return m.group(1).strip() if m else ""
 
 
+def _try_patterns(text: str, *patterns: re.Pattern) -> str:
+    """Try multiple patterns in order, return the first non-empty match."""
+    for pat in patterns:
+        result = _first_match(pat, text)
+        if result:
+            return result
+    return ""
+
+
 def _clean_phone(raw: str) -> str:
     """Normalize a phone string to (XXX) XXX-XXXX format when possible."""
     digits = re.sub(r"\D", "", raw)
@@ -141,20 +190,6 @@ def _clean_phone(raw: str) -> str:
     if len(digits) == 10:
         return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
     return raw.strip()
-
-
-def _clean_money(raw: str) -> str:
-    """Normalize a money string to $X,XXX.XX format."""
-    raw = raw.strip()
-    if not raw:
-        return ""
-    # Remove $ and spaces, keep digits, commas, dots
-    cleaned = raw.replace("$", "").replace(" ", "").replace(",", "")
-    try:
-        amount = float(cleaned)
-        return f"${amount:,.2f}"
-    except ValueError:
-        return raw
 
 
 def _normalize_state(raw: str) -> str:
@@ -183,43 +218,36 @@ def _split_full_name(full_name: str) -> tuple:
     return (parts[0], " ".join(parts[1:]))
 
 
-def extract_contact_from_text(text: str, message_id: str = "") -> dict:
+def extract_contact_from_text(text: str) -> dict:
     """
     Parse an email body and extract contact fields.
 
-    Uses key-value pattern matching first (e.g. 'First Name: John'),
-    then falls back to standalone regex patterns for email, phone, and amounts.
+    Tries key-value patterns first (e.g. 'First Name: John'), then Q&A
+    patterns (e.g. 'What is your first name?\\nJohn'), then standalone
+    regex fallbacks for email, phone, and amounts.
     """
     record = {col: "" for col in EXCEL_COLUMNS}
 
-    # --- Source ID ---
-    source_id = _first_match(RE_SOURCE_ID, text)
-    if source_id:
-        record["Source ID"] = source_id
-    elif message_id:
-        record["Source ID"] = message_id
-    else:
-        record["Source ID"] = str(uuid.uuid4())[:8].upper()
-
     # --- Names ---
-    first = _first_match(RE_FIRST_NAME, text)
-    last = _first_match(RE_LAST_NAME, text)
+    first = _try_patterns(text, RE_KV_FIRST_NAME, RE_QA_FIRST_NAME)
+    last = _try_patterns(text, RE_KV_LAST_NAME, RE_QA_LAST_NAME)
 
-    # If no explicit first/last, try full name field
     if not first and not last:
-        full = _first_match(RE_FULL_NAME, text)
+        full = _try_patterns(text, RE_KV_FULL_NAME, RE_QA_FULL_NAME)
         first, last = _split_full_name(full)
 
     record["First Name"] = first
     record["Last Name"] = last
 
-    # --- City / State ---
-    record["City"] = _first_match(RE_CITY, text)
-    state_raw = _first_match(RE_STATE, text)
+    # --- City ---
+    record["City"] = _try_patterns(text, RE_KV_CITY, RE_QA_CITY)
+
+    # --- State ---
+    state_raw = _try_patterns(text, RE_KV_STATE, RE_QA_STATE)
     record["State"] = _normalize_state(state_raw) if state_raw else ""
 
     # --- Phone ---
-    phone = _first_match(RE_PHONE, text)
+    phone = _try_patterns(text, RE_KV_PHONE, RE_QA_PHONE)
     if not phone:
         m = RE_PHONE_STANDALONE.search(text)
         if m:
@@ -227,20 +255,20 @@ def extract_contact_from_text(text: str, message_id: str = "") -> dict:
     record["Phone"] = _clean_phone(phone) if phone else ""
 
     # --- Email ---
-    email = _first_match(RE_EMAIL_FIELD, text)
+    email = _try_patterns(text, RE_KV_EMAIL, RE_QA_EMAIL)
     if not email:
         m = RE_EMAIL_ADDR.search(text)
         if m:
             email = m.group(0)
     record["Email"] = email
 
-    # --- Amount of Money Lost ---
-    amount = _first_match(RE_AMOUNT, text)
+    # --- Amount of Money Lost (capture any answer, not just dollar amounts) ---
+    amount = _try_patterns(text, RE_KV_AMOUNT, RE_QA_AMOUNT)
     if not amount:
         m = RE_MONEY.search(text)
         if m:
             amount = m.group(0)
-    record["Amount of Money Lost"] = _clean_money(amount) if amount else ""
+    record["Amount of Money Lost"] = amount.strip() if amount else ""
 
     return record
 
@@ -265,7 +293,6 @@ def _get_message_body(message) -> str:
             if body and isinstance(body, bytes):
                 body = body.decode("utf-8", errors="replace")
             if body:
-                # Rough HTML tag stripping for content extraction
                 body = re.sub(r"<br\s*/?>", "\n", body, flags=re.IGNORECASE)
                 body = re.sub(r"<[^>]+>", " ", body)
                 body = re.sub(r"&nbsp;", " ", body)
@@ -278,20 +305,8 @@ def _get_message_body(message) -> str:
     return body or ""
 
 
-def _get_message_id(message) -> str:
-    """Try to get a meaningful identifier from the message."""
-    try:
-        subject = message.subject
-        if subject:
-            return subject[:50]
-    except Exception:
-        pass
-    return ""
-
-
 def _process_folder(folder, records: list, stats: dict):
     """Recursively process a pypff folder and its subfolders."""
-    # Process messages in this folder
     try:
         num_messages = folder.number_of_sub_messages
     except Exception:
@@ -307,10 +322,8 @@ def _process_folder(folder, records: list, stats: dict):
                 stats["empty_bodies"] += 1
                 continue
 
-            msg_id = _get_message_id(message)
-            record = extract_contact_from_text(body, msg_id)
+            record = extract_contact_from_text(body)
 
-            # Only include records that have at least a name or email
             has_data = any(
                 record[f]
                 for f in ["First Name", "Last Name", "Email", "Phone"]
@@ -325,7 +338,6 @@ def _process_folder(folder, records: list, stats: dict):
             stats["errors"] += 1
             print(f"  Warning: Could not process message {i}: {exc}", file=sys.stderr)
 
-    # Recurse into subfolders
     try:
         num_folders = folder.number_of_sub_folders
     except Exception:
@@ -348,11 +360,7 @@ def _process_folder(folder, records: list, stats: dict):
 
 
 def extract_from_pst(pst_path: str) -> list:
-    """
-    Open a .pst file and extract contact records from all emails.
-
-    Returns a list of dicts, one per extracted contact.
-    """
+    """Open a .pst file and extract contact records from all emails."""
     if pypff is None:
         sys.exit(
             "ERROR: pypff (libpff-python) is not installed. Run:\n"
@@ -400,7 +408,6 @@ def write_to_excel(records: list, output_path: str):
     ws = wb.active
     ws.title = "Extracted Contacts"
 
-    # --- Header styling ---
     header_font = Font(name="Calibri", bold=True, size=11, color="FFFFFF")
     header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
     header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -411,7 +418,6 @@ def write_to_excel(records: list, output_path: str):
         bottom=Side(style="thin"),
     )
 
-    # Write header row
     for col_idx, col_name in enumerate(EXCEL_COLUMNS, start=1):
         cell = ws.cell(row=1, column=col_idx, value=col_name)
         cell.font = header_font
@@ -419,12 +425,9 @@ def write_to_excel(records: list, output_path: str):
         cell.alignment = header_alignment
         cell.border = thin_border
 
-    # --- Data styling ---
     data_font = Font(name="Calibri", size=11)
     data_alignment = Alignment(vertical="center")
-    money_format = '#,##0.00'
 
-    # Write data rows
     for row_idx, record in enumerate(records, start=2):
         for col_idx, col_name in enumerate(EXCEL_COLUMNS, start=1):
             value = record.get(col_name, "")
@@ -433,18 +436,15 @@ def write_to_excel(records: list, output_path: str):
             cell.alignment = data_alignment
             cell.border = thin_border
 
-            # Format the money column as currency if it's numeric
             if col_name == "Amount of Money Lost" and value:
-                cleaned = value.replace("$", "").replace(",", "")
+                cleaned = value.replace("$", "").replace(",", "").strip()
                 try:
                     cell.value = float(cleaned)
                     cell.number_format = '"$"#,##0.00'
                 except ValueError:
-                    pass
+                    cell.value = value
 
-    # --- Auto-fit column widths ---
     column_widths = {
-        "Source ID": 15,
         "First Name": 18,
         "Last Name": 18,
         "City": 18,
@@ -457,10 +457,7 @@ def write_to_excel(records: list, output_path: str):
         col_letter = ws.cell(row=1, column=col_idx).column_letter
         ws.column_dimensions[col_letter].width = column_widths.get(col_name, 15)
 
-    # Freeze the header row
     ws.freeze_panes = "A2"
-
-    # Auto-filter on header
     ws.auto_filter.ref = ws.dimensions
 
     wb.save(output_path)
@@ -473,8 +470,8 @@ def write_to_excel(records: list, output_path: str):
 # ---------------------------------------------------------------------------
 
 DEMO_EMAILS = [
+    # Style 1: Key-value format
     """
-    Case ID: RPT-2024-0451
     First Name: Maria
     Last Name: Gonzalez
     City: Newark
@@ -483,70 +480,108 @@ DEMO_EMAILS = [
     Email: maria.gonzalez@example.com
     Amount of Money Lost: $4,500.00
 
-    I was contacted by someone claiming to be from my bank. They convinced me
-    to wire money to a fraudulent account.
+    I was contacted by someone claiming to be from my bank.
     """,
+    # Style 2: Q&A format (question on one line, answer on next)
     """
-    Source ID: RPT-2024-0452
-    Name: James O'Brien
-    City: Jersey City
-    State: NJ
-    Telephone: 201-555-0198
-    E-mail: jobrien22@example.com
-    Total Loss: $12,750.00
+    What is your first name?
+    James
 
-    Received a phishing email that appeared to come from my employer's HR
-    department requesting updated direct deposit information.
-    """,
-    """
-    Reference: RPT-2024-0453
-    First Name: Aisha
-    Last Name: Patel
-    City: Trenton
-    State: NJ
-    Cell: 609.555.0173
-    Email: aisha.patel@example.com
-    Amount Lost: $850.00
+    What is your last name?
+    O'Brien
 
-    Purchased items from a fraudulent online storefront. Products never arrived
-    and the website has since disappeared.
-    """,
-    """
-    Case Number: RPT-2024-0454
-    First Name: Robert
-    Last Name: Chen
-    City: Princeton
-    State: New Jersey
-    Phone Number: (609) 555-0201
-    Contact Email: r.chen@example.com
-    Financial Loss: $23,000.00
+    What city do you live in?
+    Jersey City
 
-    Invested in what turned out to be a cryptocurrency scam promoted via
-    social media advertisements.
+    What state do you live in?
+    New Jersey
+
+    What is your phone number?
+    201-555-0198
+
+    What is your email?
+    jobrien22@example.com
+
+    How much money did you lose?
+    $12,750.00
     """,
+    # Style 2: Q&A with non-numeric money answer
     """
-    Ticket: RPT-2024-0455
-    Complainant: Williams, Sandra
+    What is your first name?
+    Aisha
+
+    What is your last name?
+    Patel
+
+    What city do you live in?
+    Trenton
+
+    What state do you live in?
+    NJ
+
+    What is your phone number?
+    609.555.0173
+
+    What is your email address?
+    aisha.patel@example.com
+
+    How much money did you lose?
+    I'm not sure, probably around $800
+    """,
+    # Style 2: Q&A format
+    """
+    What is your first name?
+    Robert
+
+    What is your last name?
+    Chen
+
+    What city do you live in?
+    Princeton
+
+    What state do you live in?
+    New Jersey
+
+    What is your phone number?
+    (609) 555-0201
+
+    What is your email?
+    r.chen@example.com
+
+    How much money did you lose?
+    $23,000.00
+    """,
+    # Style 1: Key-value with full name
+    """
+    Name: Williams, Sandra
     City: Atlantic City
     State: NJ
     Mobile: 609-555-0187
     Email Address: sandra.w@example.com
     Amount of Money Lost: $1,200.00
-
-    Romance scam conducted over a dating application over the course of
-    three months.
     """,
+    # Style 2: Q&A with text-only money answer
     """
-    ID: RPT-2024-0456
-    Full Name: David Kim
-    City: Hoboken
-    State: NJ
-    Tel: +1 201 555 0164
-    Email: dkim@example.com
-    Damages: $6,300.00
+    What is your first name?
+    David
 
-    Received a phone call from someone claiming to be the IRS demanding
-    immediate payment via gift cards.
+    What is your last name?
+    Kim
+
+    What city do you live in?
+    Hoboken
+
+    What state do you live in?
+    NJ
+
+    What is your cell phone number?
+    +1 201 555 0164
+
+    What is your email?
+    dkim@example.com
+
+    How much money did you lose?
+    Unknown at this time
     """,
 ]
 
@@ -555,8 +590,8 @@ def generate_demo_records() -> list:
     """Generate sample contact records from built-in demo email text."""
     print("Running in DEMO mode with sample email data...\n")
     records = []
-    for i, body in enumerate(DEMO_EMAILS):
-        record = extract_contact_from_text(body, f"demo-msg-{i+1}")
+    for body in DEMO_EMAILS:
+        record = extract_contact_from_text(body)
         records.append(record)
     print(f"  Demo contacts generated: {len(records)}")
     return records
@@ -599,7 +634,6 @@ Examples:
     if not args.demo and not args.pst_file:
         parser.error("Please provide a .pst file path, or use --demo for sample output.")
 
-    # Determine output path
     if args.output:
         output_path = args.output
     elif args.pst_file:
@@ -608,7 +642,6 @@ Examples:
     else:
         output_path = "extracted_contacts.xlsx"
 
-    # Extract records
     if args.demo:
         records = generate_demo_records()
     else:
@@ -618,7 +651,6 @@ Examples:
         print("\nNo contact data found. No Excel file created.")
         sys.exit(0)
 
-    # Write to Excel
     write_to_excel(records, output_path)
 
 
