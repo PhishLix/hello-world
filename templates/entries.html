@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}My Time{% endblock %}
+{% block content %}
+<div class="row-between">
+  <h1>My time entries</h1>
+  <a class="btn btn-primary" href="{{ url_for('entry_new') }}">Add manual entry</a>
+</div>
+
+{% if entries %}
+<table>
+  <thead>
+    <tr>
+      <th>Date</th><th>Project</th><th>Description</th>
+      <th>Start</th><th>End</th><th>Duration</th><th>Rate</th><th>Amount</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in entries %}
+    <tr>
+      <td>{{ e.start_time.strftime('%Y-%m-%d') }}</td>
+      <td>{{ e.project.name }}</td>
+      <td>{{ e.description }}{% if e.manual %} <span class="tag">manual</span>{% endif %}{% if e.invoiced %} <span class="tag tag-billed">invoiced</span>{% endif %}</td>
+      <td>{{ e.start_time|dt }}</td>
+      <td>{{ e.end_time|dt }}</td>
+      <td>{{ e.duration_seconds|hours }}</td>
+      <td>{{ e.billing_rate|money }}/h</td>
+      <td>{{ e.amount|money }}</td>
+      <td>
+        {% if not e.invoiced and e.end_time %}
+          <a href="{{ url_for('entry_edit', entry_id=e.id) }}">Edit</a>
+          <form style="display:inline" method="post" action="{{ url_for('entry_delete', entry_id=e.id) }}" onsubmit="return confirm('Delete this entry?');">
+            <button type="submit" class="link-button">Delete</button>
+          </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No entries yet.</p>
+{% endif %}
+{% endblock %}

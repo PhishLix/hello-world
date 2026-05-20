@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<div class="row-between">
+  <h1>Users</h1>
+  <a class="btn btn-primary" href="{{ url_for('user_new') }}">Add user</a>
+</div>
+<table>
+  <thead><tr><th>Username</th><th>Full name</th><th>Default rate</th><th>Admin</th><th></th></tr></thead>
+  <tbody>
+  {% for u in users %}
+    <tr>
+      <td>{{ u.username }}</td>
+      <td>{{ u.full_name }}</td>
+      <td>{{ u.default_billing_rate|money }}/h</td>
+      <td>{{ "yes" if u.is_admin else "" }}</td>
+      <td><a href="{{ url_for('user_edit', user_id=u.id) }}">Edit</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Report — {{ project.name }}{% endblock %}
+{% block content %}
+<h1>Time report: {{ project.name }}</h1>
+<p class="muted">Client: {{ project.client_name }}</p>
+
+<form method="get" class="card inline-form">
+  <label>From <input type="date" name="start" value="{{ start }}"></label>
+  <label>To <input type="date" name="end" value="{{ end }}"></label>
+  <button type="submit" class="btn">Filter</button>
+  <a class="btn" href="{{ url_for('invoice_new', project_id=project.id) }}">Generate invoice →</a>
+</form>
+
+<section class="card">
+  <h2>Summary by team member</h2>
+  {% if per_user %}
+  <table>
+    <thead><tr><th>User</th><th>Time</th><th>Amount</th></tr></thead>
+    <tbody>
+    {% for name, data in per_user.items() %}
+      <tr>
+        <td>{{ name }}</td>
+        <td>{{ data.seconds|hours }}</td>
+        <td>{{ data.amount|money }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><th>Total</th><th>{{ total_seconds|hours }}</th><th>{{ total_amount|money }}</th></tr>
+    </tfoot>
+  </table>
+  {% else %}
+  <p>No entries in this range.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Detail</h2>
+  {% if entries %}
+  <table>
+    <thead>
+      <tr><th>Date</th><th>User</th><th>Description</th><th>Duration</th><th>Rate</th><th>Amount</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+    {% for e in entries %}
+      <tr>
+        <td>{{ e.start_time.strftime('%Y-%m-%d') }}</td>
+        <td>{{ e.user.full_name }}</td>
+        <td>{{ e.description }}{% if e.manual %} <span class="tag">manual</span>{% endif %}</td>
+        <td>{{ e.duration_seconds|hours }}</td>
+        <td>{{ e.billing_rate|money }}/h</td>
+        <td>{{ e.amount|money }}</td>
+        <td>{{ "invoiced" if e.invoiced else "open" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<p><button onclick="window.print()" class="btn">Print report</button></p>
+{% endblock %}

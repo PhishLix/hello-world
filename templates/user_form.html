@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit" if user else "New" }} user{% endblock %}
+{% block content %}
+<h1>{{ "Edit user" if user else "New user" }}</h1>
+<form method="post" class="card">
+  {% if not user %}
+  <label>Username
+    <input type="text" name="username" required>
+  </label>
+  {% endif %}
+  <label>Full name
+    <input type="text" name="full_name" required value="{{ user.full_name if user else '' }}">
+  </label>
+  <label>Default billing rate ($/hour)
+    <input type="number" step="0.01" min="0" name="default_billing_rate"
+      value="{{ user.default_billing_rate if user else 0 }}">
+  </label>
+  <label>Password {% if user %}<span class="muted">(leave blank to keep current)</span>{% endif %}
+    <input type="password" name="password" {% if not user %}required{% endif %}>
+  </label>
+  <label class="inline">
+    <input type="checkbox" name="is_admin" {% if user and user.is_admin %}checked{% endif %}>
+    Administrator
+  </label>
+  <div class="row-between">
+    <a href="{{ url_for('users_list') }}">Cancel</a>
+    <button type="submit" class="btn btn-primary">Save</button>
+  </div>
+</form>
+{% endblock %}

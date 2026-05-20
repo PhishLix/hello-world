@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Invoices{% endblock %}
+{% block content %}
+<h1>Invoices</h1>
+{% if invoices %}
+<table>
+  <thead>
+    <tr><th>Invoice #</th><th>Project</th><th>Client</th><th>Generated</th><th>Period</th><th>Total</th><th></th></tr>
+  </thead>
+  <tbody>
+  {% for inv in invoices %}
+    <tr>
+      <td>INV-{{ "%05d"|format(inv.id) }}</td>
+      <td>{{ inv.project.name }}</td>
+      <td>{{ inv.project.client_name }}</td>
+      <td>{{ inv.generated_at|dt }}</td>
+      <td>
+        {{ inv.period_start.strftime('%Y-%m-%d') if inv.period_start else 'all' }}
+        →
+        {{ inv.period_end.strftime('%Y-%m-%d') if inv.period_end else 'now' }}
+      </td>
+      <td>{{ inv.total_amount|money }}</td>
+      <td><a href="{{ url_for('invoice_view', invoice_id=inv.id) }}">View</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No invoices yet.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit" if project else "New" }} project{% endblock %}
+{% block content %}
+<h1>{{ "Edit" if project else "New" }} project</h1>
+<form method="post" class="card">
+  <label>Project name
+    <input type="text" name="name" required value="{{ project.name if project else '' }}">
+  </label>
+  <label>Client name
+    <input type="text" name="client_name" required value="{{ project.client_name if project else '' }}">
+  </label>
+  <label>Client billing address
+    <textarea name="client_address" rows="3">{{ project.client_address if project else "" }}</textarea>
+  </label>
+  <label>Default billing rate ($/hour)
+    <input type="number" step="0.01" min="0" name="default_billing_rate"
+      value="{{ project.default_billing_rate if project else 0 }}">
+  </label>
+
+  <fieldset>
+    <legend>Team members &amp; leaders</legend>
+    <p class="hint">Members can log time on this project. Leaders can also run reports and generate invoices.</p>
+    <table>
+      <thead><tr><th>User</th><th>Member</th><th>Leader</th></tr></thead>
+      <tbody>
+      {% for u in users %}
+        <tr>
+          <td>{{ u.full_name }} <span class="muted">({{ u.username }})</span></td>
+          <td><input type="checkbox" name="members" value="{{ u.id }}"
+              {% if project and u.id in member_ids %}checked{% endif %}></td>
+          <td><input type="checkbox" name="leaders" value="{{ u.id }}"
+              {% if project and u.id in leader_ids %}checked{% endif %}></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </fieldset>
+
+  {% if project %}
+  <label class="inline">
+    <input type="checkbox" name="archived" {% if project.archived %}checked{% endif %}>
+    Archived (hide from timer dropdowns)
+  </label>
+  {% endif %}
+
+  <div class="row-between">
+    <a href="{{ url_for('projects_list') }}">Cancel</a>
+    <button type="submit" class="btn btn-primary">Save</button>
+  </div>
+</form>
+{% endblock %}

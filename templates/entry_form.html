@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit" if entry else "New" }} time entry{% endblock %}
+{% block content %}
+<h1>{{ "Edit" if entry else "New manual" }} time entry</h1>
+<form method="post" class="card">
+  <label>Project
+    <select name="project_id" required>
+      <option value="">-- select project --</option>
+      {% for p in projects %}
+        <option value="{{ p.id }}" {% if entry and entry.project_id == p.id %}selected{% endif %}>{{ p.name }} — {{ p.client_name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Description of work
+    <textarea name="description" rows="4" required>{{ entry.description if entry else "" }}</textarea>
+  </label>
+  <label>Start time
+    <input type="datetime-local" name="start_time" required
+      value="{{ entry.start_time.strftime('%Y-%m-%dT%H:%M') if entry else '' }}">
+  </label>
+  <label>End time
+    <input type="datetime-local" name="end_time" required
+      value="{{ entry.end_time.strftime('%Y-%m-%dT%H:%M') if entry and entry.end_time else '' }}">
+  </label>
+  <div class="row-between">
+    <a href="{{ url_for('entries_list') }}">Cancel</a>
+    <button type="submit" class="btn btn-primary">Save entry</button>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Projects{% endblock %}
+{% block content %}
+<div class="row-between">
+  <h1>Projects</h1>
+  {% if current_user.is_admin %}
+    <a class="btn btn-primary" href="{{ url_for('project_new') }}">New project</a>
+  {% endif %}
+</div>
+
+{% if projects %}
+<table>
+  <thead>
+    <tr><th>Name</th><th>Client</th><th>Default rate</th><th>Status</th><th>Actions</th></tr>
+  </thead>
+  <tbody>
+  {% for p in projects %}
+    <tr>
+      <td>{{ p.name }}{% if p.id in leader_ids %} <span class="tag tag-leader">leader</span>{% endif %}</td>
+      <td>{{ p.client_name }}</td>
+      <td>{{ p.default_billing_rate|money }}/h</td>
+      <td>{{ "archived" if p.archived else "active" }}</td>
+      <td>
+        {% if p.id in leader_ids or current_user.is_admin %}
+          <a href="{{ url_for('project_report', project_id=p.id) }}">Report</a>
+          | <a href="{{ url_for('invoice_new', project_id=p.id) }}">Invoice</a>
+        {% endif %}
+        {% if current_user.is_admin %}
+          | <a href="{{ url_for('project_edit', project_id=p.id) }}">Edit</a>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No projects.</p>
+{% endif %}
+{% endblock %}

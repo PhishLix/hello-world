@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+<section class="card">
+  {% if running %}
+    <h2>Timer running</h2>
+    <div class="timer" data-start="{{ running.start_time.isoformat() }}Z">
+      <span id="running-clock">0:00:00</span>
+    </div>
+    <p><strong>Project:</strong> {{ running.project.name }} ({{ running.project.client_name }})</p>
+    <form method="post" action="{{ url_for('timer_stop') }}">
+      <label>Update description before saving (optional)
+        <textarea name="description" rows="3">{{ running.description }}</textarea>
+      </label>
+      <button type="submit" class="btn btn-danger">Stop timer</button>
+    </form>
+  {% else %}
+    <h2>Start a timer</h2>
+    {% if projects %}
+    <form method="post" action="{{ url_for('timer_start') }}">
+      <label>Project
+        <select name="project_id" required>
+          <option value="">-- select project --</option>
+          {% for p in projects %}
+            <option value="{{ p.id }}">{{ p.name }} — {{ p.client_name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Description of work
+        <textarea name="description" rows="3" placeholder="e.g. Drafting motion to dismiss"></textarea>
+      </label>
+      <button type="submit" class="btn btn-primary">Start timer</button>
+    </form>
+    {% else %}
+      <p>You are not assigned to any projects yet. Ask an administrator to add you.</p>
+    {% endif %}
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>This week's hours</h2>
+  {% if weekly %}
+    <table>
+      <thead><tr><th>Project</th><th>Time</th></tr></thead>
+      <tbody>
+        {% for name, seconds in weekly %}
+          <tr><td>{{ name }}</td><td>{{ seconds|hours }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No completed entries in the past 7 days.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Recent entries</h2>
+  {% if recent %}
+    <table>
+      <thead>
+        <tr><th>Date</th><th>Project</th><th>Description</th><th>Duration</th></tr>
+      </thead>
+      <tbody>
+        {% for e in recent %}
+        <tr>
+          <td>{{ e.start_time|dt }}</td>
+          <td>{{ e.project.name }}</td>
+          <td>{{ e.description }}</td>
+          <td>{{ e.duration_seconds|hours }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p><a href="{{ url_for('entries_list') }}">View all my entries →</a></p>
+  {% else %}
+    <p>No entries yet. <a href="{{ url_for('entry_new') }}">Add one manually →</a></p>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='timer.js') }}"></script>
+{% endblock %}

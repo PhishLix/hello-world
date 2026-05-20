@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Generate invoice — {{ project.name }}{% endblock %}
+{% block content %}
+<h1>Generate invoice: {{ project.name }}</h1>
+<p class="muted">All un-invoiced time entries in the date range will be included and marked as invoiced.</p>
+
+<form method="post" class="card">
+  <label>From <input type="date" name="start"></label>
+  <label>To <input type="date" name="end"></label>
+  <label>Notes / payment instructions (optional)
+    <textarea name="notes" rows="4"></textarea>
+  </label>
+  <div class="row-between">
+    <a href="{{ url_for('project_report', project_id=project.id) }}">Cancel</a>
+    <button type="submit" class="btn btn-primary">Generate invoice</button>
+  </div>
+</form>
+{% endblock %}

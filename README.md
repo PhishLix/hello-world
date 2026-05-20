@@ -1,91 +1,107 @@
-# My README Template
+# Law Firm Time Tracker
 
-My name is Justin. I am a lawyer, tech is a hobby. I like to play bridge, listen to jazz, and spend time at the Jersey shore.
+A self-hosted web app for tracking billable time at a small law firm (2–10 users).
+Runs as a single Flask server on one machine on the office LAN; everyone else
+uses it from a browser.
 
-# Project Title
+## Features
 
-One Paragraph of project description goes here: To learn Github.
+- **Per-user start/stop timer** with project selection and a free-text description
+  of work performed.
+- **Manual time entry** for when a user forgets the timer or logs time after the fact.
+- **Edit / delete** time entries (until they have been included on an invoice).
+- **Projects** with client name, address, default billing rate, and a team roster.
+  Per-project per-user billing-rate overrides are supported.
+- **Team leaders** — any project member can be marked as a leader. Leaders can run
+  reports and generate invoices for that project.
+- **Reports** — filter time on a project by date range, see totals per timekeeper,
+  and a full detail listing. Printable.
+- **Invoices** — generate a printable invoice for a project covering a date range;
+  entries included are marked as invoiced and become read-only. The invoice
+  document shows each user's task, description, hours, billing rate, and total
+  due, plus a summary by timekeeper.
+- **User management** (admin only) with passwords stored as salted hashes.
 
-## Getting Started
+## Quick start
 
-These instructions will get you a copy of the project up and running on your local machine for development and testing purposes. See deployment for notes on how to deploy the project on a live system.
+Requires Python 3.10+.
 
-### Prerequisites
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-What things you need to install the software and how to install them
+# Generate a stable secret key so sessions survive restarts:
+export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
 
-```
-Give examples
-```
-
-### Installing
-
-A step by step series of examples that tell you how to get a development env running
-
-Say what the step will be
-
-```
-Give the example
-```
-
-And repeat
-
-```
-until finished
-```
-
-End with an example of getting some data out of the system or using it for a little demo
-
-## Running the tests
-
-Explain how to run the automated tests for this system
-
-### Break down into end to end tests
-
-Explain what these tests test and why
-
-```
-Give an example
+python app.py
 ```
 
-### And coding style tests
+The server listens on `0.0.0.0:5000` by default. From any machine on the same
+LAN, browse to `http://<server-ip>:5000/`.
 
-Explain what these tests test and why
+A default administrator account is created on first startup:
 
+- username: `admin`
+- password: `admin`
+
+**Change this password immediately** under *Users → admin → Edit*, then add
+real user accounts and projects.
+
+## Configuration
+
+Environment variables:
+
+| Variable       | Default                               | Purpose                    |
+| -------------- | ------------------------------------- | -------------------------- |
+| `SECRET_KEY`   | `change-me-in-production`             | Flask session signing key  |
+| `DATABASE_URL` | `sqlite:///<instance>/timetracker.db` | SQLAlchemy database URI    |
+| `HOST`         | `0.0.0.0`                             | Bind address               |
+| `PORT`         | `5000`                                | Listen port                |
+
+The SQLite database file lives in `instance/timetracker.db`. Back it up
+periodically (a plain file copy when the server is idle is sufficient).
+
+## Production deployment
+
+For a small office, the simplest robust setup is to run the app under a
+process supervisor with a real WSGI server. Example with `gunicorn`:
+
+```bash
+pip install gunicorn
+gunicorn -w 2 -b 0.0.0.0:5000 'app:app'
 ```
-Give an example
+
+For a Linux server, drop the following into `/etc/systemd/system/timetracker.service`
+(adjust paths and user):
+
+```ini
+[Unit]
+Description=Law Firm Time Tracker
+After=network.target
+
+[Service]
+User=timetracker
+WorkingDirectory=/opt/timetracker
+Environment="SECRET_KEY=<generated-secret>"
+ExecStart=/opt/timetracker/.venv/bin/gunicorn -w 2 -b 0.0.0.0:5000 app:app
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-## Deployment
+Then `systemctl enable --now timetracker` and the app will start on boot.
 
-Add additional notes about how to deploy this on a live system
+If the firm has internet exposure or wants HTTPS, put the app behind nginx
+or Caddy with TLS — but for a pure LAN deployment, plain HTTP on a trusted
+network is acceptable.
 
-## Built With
+## Roles
 
-* [Dropwizard](http://www.dropwizard.io/1.0.2/docs/) - The web framework used
-* [Maven](https://maven.apache.org/) - Dependency Management
-* [ROME](https://rometools.github.io/rome/) - Used to generate RSS Feeds
-
-## Contributing
-
-Please read [CONTRIBUTING.md](https://gist.github.com/PurpleBooth/b24679402957c63ec426) for details on our code of conduct, and the process for submitting pull requests to us.
-
-## Versioning
-
-We use [SemVer](http://semver.org/) for versioning. For the versions available, see the [tags on this repository](https://github.com/your/project/tags). 
-
-## Authors
-
-* **Billie Thompson** - *Initial work* - [PurpleBooth](https://github.com/PurpleBooth)
-
-See also the list of [contributors](https://github.com/your/project/contributors) who participated in this project.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
-
-## Acknowledgments
-
-* Hat tip to anyone whose code was used
-* Inspiration
-* etc
+- **User** — log in, run their own timer, enter time manually, view and edit
+  their own entries.
+- **Project leader** (assigned per-project) — additionally see all entries on
+  their project(s), run reports, and generate invoices.
+- **Administrator** — create/edit users and projects, assign leaders, see and
+  edit any time entry.

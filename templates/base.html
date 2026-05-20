@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}TimeTracker{% endblock %} — Law Firm Time Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+{% if current_user.is_authenticated %}
+<nav class="topbar">
+  <div class="brand"><a href="{{ url_for('dashboard') }}">Law Firm Time Tracker</a></div>
+  <div class="links">
+    <a href="{{ url_for('dashboard') }}">Dashboard</a>
+    <a href="{{ url_for('entries_list') }}">My Time</a>
+    <a href="{{ url_for('projects_list') }}">Projects</a>
+    <a href="{{ url_for('invoices_list') }}">Invoices</a>
+    {% if current_user.is_admin %}
+      <a href="{{ url_for('users_list') }}">Users</a>
+    {% endif %}
+  </div>
+  <div class="user">
+    <span>{{ current_user.full_name }}</span>
+    <a href="{{ url_for('logout') }}">Log out</a>
+  </div>
+</nav>
+{% endif %}
+
+<main class="container">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="flash flash-{{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Invoice INV-{{ "%05d"|format(invoice.id) }}{% endblock %}
+{% block content %}
+<div class="row-between no-print">
+  <h1>Invoice INV-{{ "%05d"|format(invoice.id) }}</h1>
+  <div>
+    <button onclick="window.print()" class="btn btn-primary">Print / Save PDF</button>
+    <form style="display:inline" method="post" action="{{ url_for('invoice_delete', invoice_id=invoice.id) }}"
+          onsubmit="return confirm('Delete this invoice? Time entries will be returned to the un-invoiced pool.');">
+      <button class="btn btn-danger" type="submit">Delete</button>
+    </form>
+  </div>
+</div>
+
+<div class="invoice-doc">
+  <header class="invoice-header">
+    <div>
+      <h2>INVOICE</h2>
+      <p><strong>Invoice #:</strong> INV-{{ "%05d"|format(invoice.id) }}</p>
+      <p><strong>Date issued:</strong> {{ invoice.generated_at.strftime('%Y-%m-%d') }}</p>
+      {% if invoice.period_start or invoice.period_end %}
+      <p><strong>Service period:</strong>
+        {{ invoice.period_start.strftime('%Y-%m-%d') if invoice.period_start else '—' }}
+        through
+        {{ invoice.period_end.strftime('%Y-%m-%d') if invoice.period_end else '—' }}
+      </p>
+      {% endif %}
+    </div>
+    <div class="bill-to">
+      <h3>Bill to</h3>
+      <p><strong>{{ invoice.project.client_name }}</strong></p>
+      <p style="white-space: pre-line">{{ invoice.project.client_address }}</p>
+      <p><strong>Matter:</strong> {{ invoice.project.name }}</p>
+    </div>
+  </header>
+
+  <table class="invoice-table">
+    <thead>
+      <tr>
+        <th>Date</th><th>Attorney / Staff</th><th>Description of work</th>
+        <th>Hours</th><th>Rate</th><th>Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for e in entries %}
+      <tr>
+        <td>{{ e.start_time.strftime('%Y-%m-%d') }}</td>
+        <td>{{ e.user.full_name }}</td>
+        <td>{{ e.description }}</td>
+        <td>{{ "%.2f"|format(e.hours) }}</td>
+        <td>{{ e.billing_rate|money }}</td>
+        <td>{{ e.amount|money }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <section class="invoice-summary">
+    <h3>Summary by timekeeper</h3>
+    <table>
+      <thead><tr><th>Timekeeper</th><th>Hours</th><th>Amount</th></tr></thead>
+      <tbody>
+      {% for name, data in per_user.items() %}
+        <tr>
+          <td>{{ name }}</td>
+          <td>{{ "%.2f"|format(data.seconds / 3600) }}</td>
+          <td>{{ data.amount|money }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <div class="invoice-total">
+    <h2>Total due: {{ invoice.total_amount|money }}</h2>
+  </div>
+
+  {% if invoice.notes %}
+  <section class="invoice-notes">
+    <h3>Notes</h3>
+    <p style="white-space: pre-line">{{ invoice.notes }}</p>
+  </section>
+  {% endif %}
+
+  <footer class="invoice-footer">
+    <p class="muted">Generated {{ invoice.generated_at|dt }} by {{ invoice.generated_by.full_name }}</p>
+  </footer>
+</div>
+{% endblock %}
